@@ -22,38 +22,68 @@ namespace Parser.Controllers
 
         [HttpGet]
         [OutputCache(Duration = 60)]
-        public async Task<IActionResult> Index()
+        public async Task<IActionResult> Index(int pageNumber = 1, int pageSize = 5)
         {
             _context.ChangeTracker.Clear();
 
             await _dataParser.ParseAndSaveData("", 5);
 
-            var results = await _context.Purchases.ToListAsync();
-            foreach (var purchase in results)
+            var totalItems = await _context.Purchases.CountAsync();
+            var purchases = await _context.Purchases
+                                         .OrderBy(p => p.PurchaseNumber) 
+                                         .Skip((pageNumber - 1) * pageSize)
+                                         .Take(pageSize)
+                                         .ToListAsync();
+
+            var viewModel = new PurchaseViewModel
             {
-                Console.WriteLine($"Проверка данных: {purchase.PurchaseNumber}, Дата окончания: {purchase.EndDate}");
-            }
-            return View(results);
+                Purchases = purchases,
+                CurrentPage = pageNumber,
+                TotalPages = (int)Math.Ceiling((double)totalItems / pageSize),
+                SearchPhrase = "",
+                PageCount = 5
+            };
+
+            return View(viewModel);
         }
 
         [HttpPost]
-        public async Task<IActionResult> Index(string searchPhrase, int pageCount = 5)
+        public async Task<IActionResult> Index(string searchPhrase, int pageCount = 5, int pageNumber = 1)
         {
             _context.ChangeTracker.Clear();
 
+            IQueryable<Purchase> query = _context.Purchases;
+
             if (!string.IsNullOrEmpty(searchPhrase))
             {
-                var filteredResults = await _context.Purchases
-                    .Where(p => EF.Functions.ILike(p.Title, $"%{searchPhrase}%"))
-                    .ToListAsync();
-                return View(filteredResults);
+                query = query.Where(p => EF.Functions.ILike(p.Title, $"%{searchPhrase}%"));
             }
 
-            await _dataParser.ParseAndSaveData(searchPhrase, pageCount);
+            int pageSize = 7; 
+            var totalItems = await query.CountAsync();
+            var filteredResults = await query
+                                    .Skip((pageNumber - 1) * pageSize)
+                                    .Take(pageSize)
+                                    .ToListAsync();
 
-            var results = await _context.Purchases.ToListAsync();
-            return View(results);
+            var viewModel = new PurchaseViewModel
+            {
+                Purchases = filteredResults,
+                CurrentPage = pageNumber,
+                TotalPages = (int)Math.Ceiling((double)totalItems / pageSize),
+                SearchPhrase = searchPhrase,
+                PageCount = pageCount
+            };
+
+            return View(viewModel);
         }
-     
+
+        [HttpGet("api/purchases/all")]
+        public async Task<IActionResult> GetAllPurchases()
+        {
+            var purchases = await _context.Purchases.ToListAsync();
+            return Ok(purchases);
+        }
+
     }
 }

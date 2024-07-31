@@ -43,15 +43,13 @@ namespace Parser.Services
             }
             catch (HttpRequestException ex)
             {
-                // Логируем ошибку
                 Console.WriteLine($"Request failed: {ex.Message}");
 
-                // Повторная попытка (например, 3 попытки с задержкой)
                 for (int i = 0; i < 40; i++)
                 {
                     try
                     {
-                        await Task.Delay(2000); // задержка перед повторной попыткой
+                        await Task.Delay(2000);
                         var html = await _httpClient.GetStringAsync(url);
                         return ParseHtml(html);
                     }
@@ -61,7 +59,6 @@ namespace Parser.Services
                     }
                 }
 
-                // Если все попытки не удались, выбрасываем исключение
                 throw new Exception("Failed to retrieve data after multiple attempts.");
             }
         }
