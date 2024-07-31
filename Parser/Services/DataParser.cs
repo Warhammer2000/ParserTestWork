@@ -18,6 +18,12 @@ namespace Parser.Services
 
         public async Task ParseAndSaveData(string searchPhrase, int pageCount)
         {
+            if (_context.Purchases.Any())
+            {
+                Console.WriteLine("Данные уже есть в базе, пропускаем парсинг.");
+                return;
+            }
+
             var baseUrl = $"https://www.roseltorg.ru/procedures/search?text={Uri.EscapeDataString(searchPhrase)}";
 
             var tasks = new List<Task<List<Purchase>>>();

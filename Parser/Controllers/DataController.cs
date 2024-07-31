@@ -26,6 +26,10 @@ namespace Parser.Controllers
         {
             _context.ChangeTracker.Clear();
 
+            if (!_context.Purchases.Any())
+            {
+                await _dataParser.ParseAndSaveData("", 5);
+            }
             await _dataParser.ParseAndSaveData("", 5);
 
             var totalItems = await _context.Purchases.CountAsync();
