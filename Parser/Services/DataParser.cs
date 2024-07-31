@@ -1,6 +1,7 @@
 ﻿using HtmlAgilityPack;
 using Parser.Db;
 using Parser.Models;
+using System.Net.Http;
 
 namespace Parser.Services
 {
@@ -8,27 +9,63 @@ namespace Parser.Services
     {
         private readonly AppDbContext _context;
         private readonly HttpClient _httpClient;
-
-        public DataParser(AppDbContext context)
+        public DataParser(AppDbContext context, IHttpClientFactory httpClientFactory)
         {
             _context = context;
-            _httpClient = new HttpClient();
+            _httpClient = httpClientFactory.CreateClient();
+            _httpClient.Timeout = TimeSpan.FromMinutes(2);
         }
 
-        public async Task ParseAndSaveData()
+        public async Task ParseAndSaveData(string searchPhrase, int pageCount)
         {
-            var baseUrl = "https://www.roseltorg.ru/procedures/search?sale=1&status%5B%5D=5&status%5B%5D=0&status%5B%5D=1&currency=all";
+            var baseUrl = $"https://www.roseltorg.ru/procedures/search?text={Uri.EscapeDataString(searchPhrase)}";
 
-            for (int i = 1; i <= 5; i++)
+            var tasks = new List<Task<List<Purchase>>>();
+
+            for (int i = 1; i <= pageCount; i++)
             {
                 var url = $"{baseUrl}&page={i}";
-                var html = await _httpClient.GetStringAsync(url);
-                var purchases = ParseHtml(html);
+                tasks.Add(ProcessPageAsync(url));
+            }
 
-                _context.Purchases.AddRange(purchases);
-                await _context.SaveChangesAsync();
+            var allPurchases = (await Task.WhenAll(tasks)).SelectMany(p => p).ToList();
+
+            _context.Purchases.AddRange(allPurchases);
+            await _context.SaveChangesAsync();
+        }
+
+        private async Task<List<Purchase>> ProcessPageAsync(string url)
+        {
+            try
+            {
+                var html = await _httpClient.GetStringAsync(url);
+                return ParseHtml(html);
+            }
+            catch (HttpRequestException ex)
+            {
+                // Логируем ошибку
+                Console.WriteLine($"Request failed: {ex.Message}");
+
+                // Повторная попытка (например, 3 попытки с задержкой)
+                for (int i = 0; i < 40; i++)
+                {
+                    try
+                    {
+                        await Task.Delay(2000); // задержка перед повторной попыткой
+                        var html = await _httpClient.GetStringAsync(url);
+                        return ParseHtml(html);
+                    }
+                    catch (HttpRequestException retryEx)
+                    {
+                        Console.WriteLine($"Retry {i + 1} failed: {retryEx.Message}");
+                    }
+                }
+
+                // Если все попытки не удались, выбрасываем исключение
+                throw new Exception("Failed to retrieve data after multiple attempts.");
             }
         }
+
 
         private List<Purchase> ParseHtml(string html)
         {
@@ -42,27 +79,33 @@ namespace Parser.Services
 
             foreach (var node in nodes)
             {
+                var endDateText = GetNodeTextOrDefault(node, ".//time[@class='search-results__time']", "");
                 var purchase = new Purchase
                 {
-                    PurchaseNumber = GetNodeText(node, ".//div[@class='search-results__lot']/a"),
-                    Title = GetNodeText(node, ".//div[@class='search-results__subject']/a"),
-                    Organizer = GetNodeText(node, ".//div[@class='search-results__customer']/p"),
-                    Price = GetNodeText(node, ".//div[@class='search-results__sum']/p"),
-                    EndDate = GetNodeText(node, ".//div[@class='search-results__infoblock search-results__finish-time']/p"),
-                    Location = GetNodeText(node, ".//div[@class='search-results__region']/p")
+                    PurchaseNumber = GetNodeTextOrDefault(node, ".//div[@class='search-results__lot']/a", "Не указан"),
+                    Title = GetNodeTextOrDefault(node, ".//div[@class='search-results__subject']/a", "Без названия"),
+                    Organizer = GetNodeTextOrDefault(node, ".//div[@class='search-results__customer']/p", "Не указан"),
+                    Price = GetNodeTextOrDefault(node, ".//div[@class='search-results__sum']/p", "Цена не указана"),
+                    EndDate = ParseDateAsString(endDateText, "Дата не указана"),
+                    Location = GetNodeTextOrDefault(node, ".//div[@class='search-results__region']/p", "Местоположение не указано")
                 };
-
                 purchases.Add(purchase);
             }
 
             return purchases;
         }
 
-        private string GetNodeText(HtmlNode node, string xpath)
+        private string GetNodeTextOrDefault(HtmlNode node, string xpath, string defaultValue)
         {
             var selectedNode = node.SelectSingleNode(xpath);
-            return selectedNode?.InnerText.Trim();
+            return selectedNode != null && !string.IsNullOrWhiteSpace(selectedNode.InnerText) ? selectedNode.InnerText.Trim() : defaultValue;
         }
 
+        private string ParseDateAsString(string dateText, string defaultValue)
+        {
+            var cleanDateText = dateText.Split('\n')[0].Trim();
+            return !string.IsNullOrEmpty(cleanDateText) ? cleanDateText : defaultValue;
+        }
     }
+
 }

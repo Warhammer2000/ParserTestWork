@@ -1,3 +1,7 @@
+using Microsoft.EntityFrameworkCore;
+using Parser.Db;
+using Parser.Services;
+
 namespace Parser
 {
     public class Program
@@ -6,8 +10,18 @@ namespace Parser
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // Add services to the container.
+            builder.Services.AddDbContext<AppDbContext>(options =>
+                options.UseNpgsql(
+                    builder.Configuration.GetConnectionString("DefaultConnection")));
+
+            builder.Services.AddMemoryCache();
+
             builder.Services.AddControllersWithViews();
+
+
+            builder.Services.AddTransient<DataParser>();
+            builder.Services.AddScoped<DataService>();
+            builder.Services.AddHttpClient();
 
             var app = builder.Build();
 
@@ -15,7 +29,6 @@ namespace Parser
             if (!app.Environment.IsDevelopment())
             {
                 app.UseExceptionHandler("/Home/Error");
-                // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
                 app.UseHsts();
             }
 
@@ -26,9 +39,11 @@ namespace Parser
 
             app.UseAuthorization();
 
+
             app.MapControllerRoute(
-                name: "default",
-                pattern: "{controller=Home}/{action=Index}/{id?}");
+                  name: "default",
+                  pattern: "{controller=Home}/{action=Index}/{id?}");
+
 
             app.Run();
         }

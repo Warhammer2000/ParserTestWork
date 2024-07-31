@@ -8,5 +8,11 @@ namespace Parser.Db
         public DbSet<Purchase> Purchases { get; set; }
 
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Purchase>().HasKey(p => p.PurchaseNumber);
+        }
     }
 }
