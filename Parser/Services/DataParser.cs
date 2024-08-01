@@ -1,4 +1,5 @@
 ﻿using HtmlAgilityPack;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Parser.Db;
 using Parser.Models;
@@ -32,7 +33,7 @@ namespace Parser.Services
                 return;
             }
 
-            if (_context.Purchases.Any())
+            if (_context.Purchases.AsNoTracking().Any())
             {
                 Console.WriteLine("Данные уже есть в базе, пропускаем парсинг.");
                 return;

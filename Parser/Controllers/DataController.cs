@@ -8,7 +8,6 @@ using Parser.Services;
 
 namespace Parser.Controllers
 {
-
     [Route("[controller]")]
     public class DataController : Controller
     {
@@ -28,20 +27,21 @@ namespace Parser.Controllers
         {
             _context.ChangeTracker.Clear();
 
-            if (!_context.Purchases.Any())
-            {
-                await _dataParser.ParseAndSaveData("", 5);
-            }
-
             string cacheKey = $"Purchases_{pageNumber}_{pageSize}";
 
             if (!_cache.TryGetValue(cacheKey, out List<Purchase> purchases))
             {
+                if (!_context.Purchases.Any())
+                {
+                    await _dataParser.ParseAndSaveData("", 5);
+                }
+
                 purchases = await _context.Purchases
-                                          .OrderBy(p => p.PurchaseNumber)
-                                          .Skip((pageNumber - 1) * pageSize)
-                                          .Take(pageSize)
-                                          .ToListAsync();
+                                    .AsNoTracking()
+                                    .OrderBy(p => p.PurchaseNumber)
+                                    .Skip((pageNumber - 1) * pageSize)
+                                    .Take(pageSize)
+                                    .ToListAsync();
 
                 _cache.Set(cacheKey, purchases, TimeSpan.FromMinutes(30));
             }

@@ -13,9 +13,22 @@ namespace Parser.Services
         }
         public async Task DeleteAllDataAsync()
         {
-            _context.Purchases.RemoveRange(_context.Purchases);
+            using (var transaction = await _context.Database.BeginTransactionAsync())
+            {
+                try
+                {
+                    _context.Purchases.RemoveRange(_context.Purchases);
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
 
-            await _context.SaveChangesAsync();
+                    Console.WriteLine($"Ошибка при удалении данных: {ex.Message}");
+                    throw;
+                }
+            }
         }
     }
 }
