@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Parser.Db;
 using Parser.Models;
 using Parser.Services;
@@ -13,11 +14,12 @@ namespace Parser.Controllers
     {
         private readonly AppDbContext _context;
         private readonly DataParser _dataParser;
-
-        public DataController(AppDbContext context, DataParser dataParser)
+        private readonly IMemoryCache _cache;
+        public DataController(AppDbContext context, DataParser dataParser, IMemoryCache cache)
         {
             _context = context;
             _dataParser = dataParser;
+            _cache = cache;
         }
 
         [HttpGet]
@@ -30,15 +32,21 @@ namespace Parser.Controllers
             {
                 await _dataParser.ParseAndSaveData("", 5);
             }
-            await _dataParser.ParseAndSaveData("", 5);
+
+            string cacheKey = $"Purchases_{pageNumber}_{pageSize}";
+
+            if (!_cache.TryGetValue(cacheKey, out List<Purchase> purchases))
+            {
+                purchases = await _context.Purchases
+                                          .OrderBy(p => p.PurchaseNumber)
+                                          .Skip((pageNumber - 1) * pageSize)
+                                          .Take(pageSize)
+                                          .ToListAsync();
+
+                _cache.Set(cacheKey, purchases, TimeSpan.FromMinutes(30));
+            }
 
             var totalItems = await _context.Purchases.CountAsync();
-            var purchases = await _context.Purchases
-                                         .OrderBy(p => p.PurchaseNumber) 
-                                         .Skip((pageNumber - 1) * pageSize)
-                                         .Take(pageSize)
-                                         .ToListAsync();
-
             var viewModel = new PurchaseViewModel
             {
                 Purchases = purchases,
@@ -56,25 +64,32 @@ namespace Parser.Controllers
         {
             _context.ChangeTracker.Clear();
 
-            IQueryable<Purchase> query = _context.Purchases;
+            string cacheKey = $"Purchases_Search_{searchPhrase}_{pageCount}_{pageNumber}";
 
-            if (!string.IsNullOrEmpty(searchPhrase))
+            if (!_cache.TryGetValue(cacheKey, out List<Purchase> filteredResults))
             {
-                query = query.Where(p => EF.Functions.ILike(p.Title, $"%{searchPhrase}%"));
-            }
+                IQueryable<Purchase> query = _context.Purchases;
 
-            int pageSize = 7; 
-            var totalItems = await query.CountAsync();
-            var filteredResults = await query
-                                    .Skip((pageNumber - 1) * pageSize)
-                                    .Take(pageSize)
-                                    .ToListAsync();
+                if (!string.IsNullOrEmpty(searchPhrase))
+                {
+                    query = query.Where(p => EF.Functions.ILike(p.Title, $"%{searchPhrase}%"));
+                }
+
+                int pageSize = 7;
+                var totalItems = await query.CountAsync();
+                filteredResults = await query
+                                        .Skip((pageNumber - 1) * pageSize)
+                                        .Take(pageSize)
+                                        .ToListAsync();
+
+                _cache.Set(cacheKey, filteredResults, TimeSpan.FromMinutes(30));
+            }
 
             var viewModel = new PurchaseViewModel
             {
                 Purchases = filteredResults,
                 CurrentPage = pageNumber,
-                TotalPages = (int)Math.Ceiling((double)totalItems / pageSize),
+                TotalPages = (int)Math.Ceiling((double)filteredResults.Count / 7),
                 SearchPhrase = searchPhrase,
                 PageCount = pageCount
             };
@@ -82,12 +97,19 @@ namespace Parser.Controllers
             return View(viewModel);
         }
 
+
         [HttpGet("api/purchases/all")]
         public async Task<IActionResult> GetAllPurchases()
         {
-            var purchases = await _context.Purchases.ToListAsync();
+            string cacheKey = "AllPurchases";
+
+            if (!_cache.TryGetValue(cacheKey, out List<Purchase> purchases))
+            {
+                purchases = await _context.Purchases.ToListAsync();
+                _cache.Set(cacheKey, purchases, TimeSpan.FromMinutes(30));
+            }
+
             return Ok(purchases);
         }
-
     }
 }

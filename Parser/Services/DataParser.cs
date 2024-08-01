@@ -1,4 +1,5 @@
 ﻿using HtmlAgilityPack;
+using Microsoft.Extensions.Caching.Memory;
 using Parser.Db;
 using Parser.Models;
 using System.Net.Http;
@@ -9,15 +10,28 @@ namespace Parser.Services
     {
         private readonly AppDbContext _context;
         private readonly HttpClient _httpClient;
-        public DataParser(AppDbContext context, IHttpClientFactory httpClientFactory)
+        private readonly IMemoryCache _cache;
+        public DataParser(AppDbContext context, IHttpClientFactory httpClientFactory, IMemoryCache cache)
         {
             _context = context;
             _httpClient = httpClientFactory.CreateClient();
             _httpClient.Timeout = TimeSpan.FromMinutes(2);
+            _cache = cache;
         }
 
         public async Task ParseAndSaveData(string searchPhrase, int pageCount)
         {
+            string cacheKey = $"Purchases_{searchPhrase}_{pageCount}";
+
+            if (_cache.TryGetValue(cacheKey, out List<Purchase> cachedPurchases))
+            {
+                Console.WriteLine("Данные загружены из кэша.");
+                
+                _context.Purchases.AddRange(cachedPurchases);
+                await _context.SaveChangesAsync();
+                return;
+            }
+
             if (_context.Purchases.Any())
             {
                 Console.WriteLine("Данные уже есть в базе, пропускаем парсинг.");
@@ -35,6 +49,8 @@ namespace Parser.Services
             }
 
             var allPurchases = (await Task.WhenAll(tasks)).SelectMany(p => p).ToList();
+
+            _cache.Set(cacheKey, allPurchases, TimeSpan.FromMinutes(30));
 
             _context.Purchases.AddRange(allPurchases);
             await _context.SaveChangesAsync();
